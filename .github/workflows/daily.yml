@@ -1,0 +1,38 @@
+name: daily forecast
+
+on:
+  schedule:
+    - cron: "30 19 * * *"   # after the TSO day-ahead forecasts for tomorrow are on SMARD
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install (CPU-only PyTorch)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e .
+      - name: Restore data cache
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: data-${{ github.run_id }}
+          restore-keys: data-
+      - name: Forecast tomorrow, retrain monthly, score past forecasts
+        run: python -m dpfs.daily
+      - name: Commit forecasts and model
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add forecasts models
+          git diff --cached --quiet || git commit -m "daily forecast $(date -u +%F)"
+          git push
