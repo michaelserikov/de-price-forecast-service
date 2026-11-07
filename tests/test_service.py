@@ -33,6 +33,19 @@ def test_forecast_errors(inp, model_dir, tmp_path):
     assert empty.get("/forecast", params={"day": "2023-12-01"}).status_code == 503
 
 
+def test_date_formats_default_day_and_home(inp, model_dir, monkeypatch):
+    client = TestClient(create_app(model_dir, provider=lambda day: inp))
+    a = client.get("/forecast", params={"day": "2023-12-01"}).json()
+    b = client.get("/forecast", params={"day": "01.12.2023"}).json()
+    assert b["day"] == "2023-12-01" and a["hours"] == b["hours"]
+    # no day: tomorrow, falling back to today when tomorrow is not available
+    monkeypatch.setattr(pd.Timestamp, "now", classmethod(lambda cls, tz=None: pd.Timestamp("2023-12-01 18:00", tz=tz)))
+    last = inp["load"].index.max()
+    r = client.get("/forecast").json()
+    assert r["day"] == ("2023-12-02" if last >= pd.Timestamp("2023-12-02") else "2023-12-01")
+    assert "how to use" in client.get("/").text.lower()
+
+
 def test_daily_scoring_and_retrain_rule(inp, model_dir, tmp_path):
     ens = models.Ensemble.load(model_dir)
     for day in ("2023-12-01", "2023-12-02"):
