@@ -1,0 +1,62 @@
+{
+  "day": "2026-11-08",
+  "checks": {
+    "day": "2026-11-08",
+    "ok": true,
+    "errors": [],
+    "warnings": []
+  },
+  "drift": {
+    "features": {
+      "price": {
+        "psi": 1.5646,
+        "status": "significant"
+      },
+      "load": {
+        "psi": 0.326,
+        "status": "significant"
+      },
+      "res": {
+        "psi": 0.0836,
+        "status": "stable"
+      },
+      "residual_load": {
+        "psi": 0.0583,
+        "status": "stable"
+      },
+      "eua": {
+        "recent_mean": 87.14,
+        "train_p05": 63.85,
+        "train_p95": 85.66,
+        "status": "significant"
+      },
+      "gas": {
+        "recent_mean": 78.2,
+        "train_p05": 30.75,
+        "train_p95": 62.13,
+        "status": "significant"
+      }
+    },
+    "live": {
+      "days": 9,
+      "live_mae": 44.549,
+      "backtest_mae": 13.1908,
+      "ratio": 3.377,
+      "alarm": true
+    },
+    "retrain": true,
+    "reasons": [
+      "gas",
+      "eua",
+      "live accuracy"
+    ]
+  },
+  "retrained": true,
+  "reasons": [
+    "gas",
+    "eua",
+    "live accuracy"
+  ],
+  "scored_days": 9,
+  "live_mae_all": 44.54851851851852
+}
