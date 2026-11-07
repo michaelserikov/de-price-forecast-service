@@ -19,7 +19,8 @@ def load_inputs(start: str, end: str, data: Path = DATA) -> dict:
     hourly = smard.load_hourly(first, end, data / "raw")
     cache = data / "raw" / "fuels"
     eua = fuels.eua_auctions(cache, range(pd.Timestamp(start).year, pd.Timestamp(end).year + 1))
-    gas = fuels.gas_monthly(cache, (pd.Timestamp(start) - pd.DateOffset(months=1)).strftime("%Y-%m"),
+    # four months back, so that the last published monthly value can be carried forward (publication lag)
+    gas = fuels.gas_monthly(cache, (pd.Timestamp(start) - pd.DateOffset(months=4)).strftime("%Y-%m"),
                             pd.Timestamp(end).strftime("%Y-%m"))
     inp = ft.build_inputs(hourly, eua, gas, last_day=pd.Timestamp(end))
     days = pd.date_range(start, end, freq="D")

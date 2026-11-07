@@ -48,15 +48,27 @@ def build_inputs(hourly: pd.DataFrame, eua: pd.DataFrame, gas_monthly: pd.Series
     end = last_day if last_day is not None else load.dropna().index.max()
     days = pd.date_range(min(price.index.min(), load.index.min()), end, freq="D")
     price = price.reindex(days)
-    load = load.reindex(days).interpolate(limit_direction="both")
-    res = res.reindex(days).interpolate(limit_direction="both")
+    # fill only gaps between published days; a day without TSO forecasts stays missing
+    load = load.reindex(days).interpolate(limit_area="inside")
+    res = res.reindex(days).interpolate(limit_area="inside")
     e = eua.sort_values("date").assign(known_from=lambda x: (x["date"] + pd.Timedelta(days=1)).astype("datetime64[ns]"))
     left = pd.DataFrame({"day": days.astype("datetime64[ns]")})
-    eua_known = pd.merge_asof(left, e[["known_from", "price"]], left_on="day", right_on="known_from",
-                              direction="backward")["price"].set_axis(days).ffill()
+    m = pd.merge_asof(left, e[["known_from", "price", "date"]], left_on="day", right_on="known_from", direction="backward")
+    eua_known = m["price"].set_axis(days).ffill()
+    eua_age = pd.Series((days - pd.DatetimeIndex(m["date"]).normalize()).days, index=days, dtype=float)
     prev = days.to_period("M") - 1
-    gas = pd.Series(gas_monthly.reindex(prev).to_numpy(), index=days).ffill()
-    return {"price": price, "load": load, "res": res, "eua": eua_known, "gas": gas}
+    g = gas_monthly.sort_index()
+    gas_age = pd.Series(np.nan, index=days)
+    if len(g):
+        full = pd.period_range(min(g.index.min(), prev.min()), max(g.index.max(), prev.max()), freq="M")
+        published = pd.Series(np.arange(len(full)), index=full).where(full.isin(g.index)).ffill()
+        g = g.reindex(full).ffill()
+        pos = pd.Series(np.arange(len(full)), index=full)
+        gas_age = pd.Series((pos.reindex(prev).to_numpy() - published.reindex(prev).to_numpy()), index=days)
+    gas = pd.Series(g.reindex(prev).to_numpy(), index=days).ffill()
+    # ages of the fuel signals: days since the last EUA auction, months the gas value is carried beyond its month
+    return {"price": price, "load": load, "res": res, "eua": eua_known, "gas": gas,
+            "eua_age_days": eua_age, "gas_age_months": gas_age}
 
 
 def tabular(inp: dict, days: pd.DatetimeIndex) -> tuple[np.ndarray, np.ndarray]:

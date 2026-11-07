@@ -1,0 +1,19 @@
+name: deploy to Hugging Face Space
+
+# Manual only. Needs the repository secret HF_TOKEN (a Hugging Face token with write access).
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install huggingface_hub
+      - name: Upload service, model and latest forecasts to the Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python scripts/deploy_hf.py --push

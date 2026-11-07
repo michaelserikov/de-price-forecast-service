@@ -5,3 +5,6 @@ __pycache__/
 data/
 *.egg-info/
 results/backtest/*.npy
+mlflow.db
+mlartifacts/
+mlruns/

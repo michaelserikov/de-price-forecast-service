@@ -14,6 +14,8 @@ Adapted from github.com/michaelserikov/de-power-market-ppa (same author).
 from __future__ import annotations
 
 import io
+import re
+import time
 import zipfile
 from pathlib import Path
 
@@ -22,6 +24,7 @@ import requests
 
 WB_URL = ("https://thedocs.worldbank.org/en/doc/18675f1d1639c7a34d463f59263ba0a2-0050012025/"
           "related/CMO-Historical-Data-Monthly.xlsx")
+WB_PAGE = "https://www.worldbank.org/en/research/commodity-markets"
 ECB_URL = ("https://data-api.ecb.europa.eu/service/data/EXR/M.USD.EUR.SP00.A"
            "?format=csvdata&startPeriod={start}&endPeriod={end}")
 EEX_URL = ("https://www.eex.com/fileadmin/EEX/Downloads/Markets/Environmentals/"
@@ -33,8 +36,10 @@ MMBTU_PER_MWH = 3.412
 _HEADERS = {"User-Agent": "de-price-forecast-service (research; github.com/michaelserikov/de-price-forecast-service)"}
 
 
-def _cached(url: str, path: Path) -> bytes:
-    if not path.exists():
+def _cached(url: str, path: Path, max_age_days: float | None = None) -> bytes:
+    """Downloads once; with max_age_days, downloads again when the cached copy is older (sources that update)."""
+    stale = max_age_days is not None and path.exists() and (time.time() - path.stat().st_mtime) / 86400 > max_age_days
+    if not path.exists() or stale:
         r = requests.get(url, headers=_HEADERS, timeout=120)
         r.raise_for_status()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -42,9 +47,25 @@ def _cached(url: str, path: Path) -> bytes:
     return path.read_bytes()
 
 
+def current_wb_url() -> str:
+    """The Pink Sheet moves to a new address with every monthly release; read the current link from the
+    World Bank commodity markets page, and fall back to WB_URL if the page cannot be read."""
+    try:
+        r = requests.get(WB_PAGE, headers=_HEADERS, timeout=60)
+        r.raise_for_status()
+        links = re.findall(r'href="([^"]*CMO-Historical-Data-Monthly\.xlsx)"', r.text)
+        if links:
+            return links[0] if links[0].startswith("http") else "https://www.worldbank.org" + links[0]
+    except requests.RequestException:
+        pass
+    return WB_URL
+
+
 def gas_monthly(cache: Path, start: str, end: str) -> pd.Series:
     """Monthly TTF gas price in EUR per MWh (World Bank Pink Sheet converted with the ECB rate)."""
-    raw = pd.read_excel(io.BytesIO(_cached(WB_URL, cache / "wb_pink_sheet_monthly.xlsx")),
+    path = cache / "wb_pink_sheet_monthly.xlsx"
+    stale = not path.exists() or (time.time() - path.stat().st_mtime) / 86400 > 7
+    raw = pd.read_excel(io.BytesIO(_cached(current_wb_url() if stale else WB_URL, path, max_age_days=7)),
                         sheet_name="Monthly Prices", header=None)
     header = raw.iloc[4].tolist()
     gas_col = header.index("Natural gas, Europe")
@@ -65,8 +86,12 @@ def gas_monthly(cache: Path, start: str, end: str) -> pd.Series:
 def eua_auctions(cache: Path, years: range) -> pd.DataFrame:
     """Daily EEX primary-auction clearing prices of EU allowances (EUR/t); years missing from the archive are skipped."""
     z = zipfile.ZipFile(io.BytesIO(_cached(EEX_URL, cache / "eex_eua_auctions_2012_2025.zip")))
+    available = sorted(int(n.rsplit("-", 2)[-2]) for n in z.namelist() if n.endswith("-data.xlsx") and n.rsplit("-", 2)[-2].isdigit())
+    wanted = [y for y in years if y in available]
+    if available and (not wanted or max(years) > max(available)):
+        wanted.append(available[-1])      # the last published year, carried forward for later days
     frames = []
-    for year in years:
+    for year in sorted(set(wanted)):
         names = [n for n in z.namelist() if n.endswith(f"-{year}-data.xlsx")]
         if not names:
             continue
