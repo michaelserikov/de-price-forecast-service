@@ -5,6 +5,8 @@ RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user PATH=/home/user/.local/bin:$PATH \
     DPFS_ROOT=/home/user/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# Created as the user, so the input cache in data/ is writable
+RUN mkdir -p /home/user/app/data
 WORKDIR /home/user/app
 
 # CPU-only PyTorch keeps the image small; the models are a few hundred kilobytes.
