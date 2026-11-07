@@ -1,9 +1,13 @@
 .venv
 .git
 data
-results
+results/*
+!results/backtest
+results/backtest/*
+!results/backtest/metrics.csv
 figures
-forecasts
 tests
 **/__pycache__
 *.egg-info
+mlflow.db
+mlartifacts
