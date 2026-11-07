@@ -30,6 +30,8 @@ ECB_URL = ("https://data-api.ecb.europa.eu/service/data/EXR/M.USD.EUR.SP00.A"
 EEX_URL = ("https://www.eex.com/fileadmin/EEX/Downloads/Markets/Environmentals/"
            "EUA_Emission_Spot_Primary_Market_Auction_Report/Archive_Reports/"
            "emission-spot-primary-market-auction-report-2012-2025-data.zip")
+EEX_CURRENT_URL = ("https://public.eex-group.com/eex/eua-auction-report/"
+                   "emission-spot-primary-market-auction-report-{year}-data.xlsx")
 
 MMBTU_PER_MWH = 3.412
 
@@ -83,27 +85,40 @@ def gas_monthly(cache: Path, start: str, end: str) -> pd.Series:
     return out.dropna().rename("gas_eur_mwh")
 
 
+def _auction_report(content: bytes) -> pd.DataFrame:
+    """Date and clearing price of the successful auctions in one yearly EEX report."""
+    raw = pd.read_excel(io.BytesIO(content), header=None)
+    header_row = next(i for i, v in enumerate(raw.iloc[:, 1]) if str(v).strip() == "Date")
+    cols = [str(c).strip() for c in raw.iloc[header_row]]
+    price_col = next(i for i, c in enumerate(cols) if c.startswith("Auction Price"))
+    status_col = cols.index("Status")
+    df = raw.iloc[header_row + 1:, [1, price_col, status_col]]
+    df.columns = ["date", "price", "status"]
+    df = df[[str(v).strip().lower() == "successful" for v in df["status"]]]
+    return df[["date", "price"]]
+
+
 def eua_auctions(cache: Path, years: range) -> pd.DataFrame:
-    """Daily EEX primary-auction clearing prices of EU allowances (EUR/t); years missing from the archive are skipped."""
+    """Daily EEX primary-auction clearing prices of EU allowances (EUR/t). Past years come from the archive, the
+    years after it from the current-year reports (refreshed daily); a year that cannot be read is skipped and the
+    last price is carried forward."""
     z = zipfile.ZipFile(io.BytesIO(_cached(EEX_URL, cache / "eex_eua_auctions_2012_2025.zip")))
     available = sorted(int(n.rsplit("-", 2)[-2]) for n in z.namelist() if n.endswith("-data.xlsx") and n.rsplit("-", 2)[-2].isdigit())
     wanted = [y for y in years if y in available]
-    if available and (not wanted or max(years) > max(available)):
-        wanted.append(available[-1])      # the last published year, carried forward for later days
+    later = [y for y in years if available and y > available[-1]]
+    if available and (not wanted or later):
+        wanted.append(available[-1])      # the last archived year, carried forward if a later report is missing
     frames = []
     for year in sorted(set(wanted)):
         names = [n for n in z.namelist() if n.endswith(f"-{year}-data.xlsx")]
-        if not names:
+        if names:
+            frames.append(_auction_report(z.read(names[0])))
+    for year in later:
+        try:
+            frames.append(_auction_report(_cached(EEX_CURRENT_URL.format(year=year),
+                                                  cache / f"eex_eua_auctions_{year}.xlsx", max_age_days=1)))
+        except (requests.RequestException, ValueError, StopIteration, KeyError):
             continue
-        raw = pd.read_excel(io.BytesIO(z.read(names[0])), header=None)
-        header_row = next(i for i, v in enumerate(raw.iloc[:, 1]) if str(v).strip() == "Date")
-        cols = [str(c).strip() for c in raw.iloc[header_row]]
-        price_col = next(i for i, c in enumerate(cols) if c.startswith("Auction Price"))
-        status_col = cols.index("Status")
-        df = raw.iloc[header_row + 1:, [1, price_col, status_col]]
-        df.columns = ["date", "price", "status"]
-        df = df[[str(v).strip().lower() == "successful" for v in df["status"]]]
-        frames.append(df[["date", "price"]])
     out = pd.concat(frames)
     out["date"] = pd.to_datetime(out["date"])
     out["price"] = out["price"].astype(float)

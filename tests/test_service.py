@@ -38,6 +38,7 @@ def test_date_formats_default_day_and_home(inp, model_dir, monkeypatch):
     a = client.get("/forecast", params={"day": "2023-12-01"}).json()
     b = client.get("/forecast", params={"day": "01.12.2023"}).json()
     assert b["day"] == "2023-12-01" and a["hours"] == b["hours"]
+    assert "actual" in a["hours"][0] and 0 <= a["score"]["hours_inside_80pct_band"] <= 24
     # no day: tomorrow, falling back to today when tomorrow is not available
     monkeypatch.setattr(pd.Timestamp, "now", classmethod(lambda cls, tz=None: pd.Timestamp("2023-12-01 18:00", tz=tz)))
     last = inp["load"].index.max()

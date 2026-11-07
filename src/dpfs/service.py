@@ -123,9 +123,11 @@ const t=new Date();t.setDate(t.getDate()+1);d.value=t.toISOString().slice(0,10);
 f.onsubmit=async e=>{e.preventDefault();msg.textContent="computing, up to a minute if the service was asleep…";out.innerHTML="";
  try{const r=await fetch("forecast?day="+encodeURIComponent(d.value));const j=await r.json();
   if(!r.ok){msg.textContent="";out.textContent=typeof j.detail==="string"?j.detail:JSON.stringify(j.detail);return;}
-  const avg=j.hours.reduce((a,h)=>a+h.q50,0)/24;msg.textContent="day average "+avg.toFixed(1)+" EUR/MWh";
-  out.innerHTML="<table><tr><th>Hour</th><th>q10</th><th>q50</th><th>q90</th></tr>"+j.hours.map(h=>
-   `<tr><td>${String(h.hour).padStart(2,"0")}:00</td><td>${h.q10.toFixed(1)}</td><td><b>${h.q50.toFixed(1)}</b></td><td>${h.q90.toFixed(1)}</td></tr>`).join("")+"</table>";
+  const avg=j.hours.reduce((a,h)=>a+h.q50,0)/24,has=j.score!==undefined;
+  msg.textContent=j.day+": forecast day average "+avg.toFixed(1)+" EUR/MWh"+(has?`; auction already cleared: mean absolute error ${j.score.mae.toFixed(1)}, ${j.score.hours_inside_80pct_band} of 24 hours inside the band`:"");
+  out.innerHTML=(j.warnings&&j.warnings.length?`<p class="muted">Input warnings: ${j.warnings.join("; ")}</p>`:"")+
+   "<table><tr><th>Hour</th><th>q10</th><th>q50</th><th>q90</th>"+(has?"<th>Actual</th>":"")+"</tr>"+j.hours.map(h=>
+   `<tr><td>${String(h.hour).padStart(2,"0")}:00</td><td>${h.q10.toFixed(1)}</td><td><b>${h.q50.toFixed(1)}</b></td><td>${h.q90.toFixed(1)}</td>${has?`<td>${h.actual.toFixed(1)}</td>`:""}</tr>`).join("")+"</table>";
  }catch(err){msg.textContent="request failed: "+err;}};
 </script></body></html>"""
 
@@ -189,7 +191,16 @@ def create_app(model_dir: Path = MODEL_DIR, provider: Callable[[pd.Timestamp], d
         q = ens.predict(inp, pd.DatetimeIndex([d]))[0]
         hours = [{"hour": h, "q10": round(float(q[h, 0]), 2), "q50": round(float(q[h, 1]), 2),
                   "q90": round(float(q[h, 2]), 2)} for h in range(24)]
-        return {"day": day, "unit": "EUR/MWh", "zone": "DE-LU", "hours": hours, "warnings": quality["warnings"]}
+        out = {"day": day, "unit": "EUR/MWh", "zone": "DE-LU", "hours": hours, "warnings": quality["warnings"]}
+        price = inp["price"]
+        if d in price.index and not price.loc[d].isna().any():   # auction already cleared: show the outcome
+            actual = price.loc[d].to_numpy(float)
+            for h in hours:
+                h["actual"] = round(float(actual[h["hour"]]), 2)
+            q50 = [h["q50"] for h in hours]
+            out["score"] = {"mae": round(float(abs(actual - q50).mean()), 2),
+                            "hours_inside_80pct_band": int(sum(h["q10"] <= h["actual"] <= h["q90"] for h in hours))}
+        return out
 
     @app.get("/monitoring")
     def monitoring() -> dict:
