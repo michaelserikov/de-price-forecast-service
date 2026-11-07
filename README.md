@@ -6,6 +6,8 @@ scheduled GitHub Actions job that also scores past forecasts against realised pr
 
 **Live page:** https://huggingface.co/spaces/michaelserikov/de-price-forecast (tomorrow's forecast,
 live accuracy and the backtest, read from the files the daily job commits here).
+**Live API:** https://de-price-forecast.onrender.com/docs (free instance: after 15 minutes without
+requests it sleeps, and the first call takes about a minute).
 
 The forecasting study behind it, with LEAR and gradient boosting benchmarks, is
 [de-power-market-ppa](https://github.com/michaelserikov/de-power-market-ppa) v0.5-v0.6. This
