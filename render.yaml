@@ -1,0 +1,15 @@
+# Render blueprint for the API on the free plan: the same image as the Hugging Face Docker Space.
+# The free instance sleeps after 15 minutes without requests; the first request then takes about a minute.
+services:
+  - type: web
+    name: de-price-forecast
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./deploy/huggingface/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "7860"

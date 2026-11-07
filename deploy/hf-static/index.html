@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>German Power Price Forecast</title>
+<style>
+:root{--bg:#fbfaf7;--card:#ffffff;--ink:#1d2329;--muted:#5d6670;--line:#e3e0d8;--accent:#1f6f8b;--band:rgba(31,111,139,.16);--bad:#a5432d}
+@media (prefers-color-scheme:dark){:root{--bg:#14181c;--card:#1c2228;--ink:#e6e8ea;--muted:#9aa4ad;--line:#2d353d;--accent:#6cb6d1;--band:rgba(108,182,209,.2);--bad:#e08a72}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:920px;margin:0 auto;padding:28px 16px 48px}
+h1{font-size:1.55rem;margin:0 0 4px;letter-spacing:-.01em}
+h2{font-size:1.05rem;margin:0 0 10px}
+.sub{color:var(--muted);margin:0 0 22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:18px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.kpi b{display:block;font-size:1.35rem;font-variant-numeric:tabular-nums}
+.kpi span{color:var(--muted);font-size:.85rem}
+svg{width:100%;height:auto;display:block}
+.axis{stroke:var(--line)}
+.lbl{fill:var(--muted);font-size:11px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:.9rem}
+th,td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--muted);font-weight:600}
+.wrap{overflow-x:auto}
+.note{color:var(--muted);font-size:.85rem;margin:10px 0 0}
+a{color:var(--accent)}
+.hl td{font-weight:600}
+</style>
+</head>
+<body>
+<main>
+<h1>German day-ahead power price forecast</h1>
+<p class="sub">Hourly 10%, 50% and 90% quantile forecasts of DE-LU day-ahead prices from an ensemble of PyTorch networks (MLP and LSTM), produced every evening by a scheduled job on public SMARD and fuel price data. Research and engineering demonstration, not investment advice. Code and method: <a href="https://github.com/michaelserikov/de-price-forecast-service">github.com/michaelserikov/de-price-forecast-service</a></p>
+
+<div class="kpis">
+  <div class="kpi"><span>Delivery day</span><b id="k-day">…</b></div>
+  <div class="kpi"><span>Median forecast, day average</span><b id="k-avg">…</b></div>
+  <div class="kpi"><span>Peak hour (median)</span><b id="k-peak">…</b></div>
+  <div class="kpi"><span>Live MAE, last 7 scored days</span><b id="k-mae">…</b></div>
+</div>
+
+<section class="card">
+  <h2 id="chart-title">Latest forecast</h2>
+  <div id="chart"></div>
+  <p class="note">Line: median; band: 10% to 90% quantiles; EUR/MWh by delivery hour.</p>
+</section>
+
+<section class="card">
+  <h2>Live accuracy of past forecasts</h2>
+  <div class="wrap"><table id="perf"><thead><tr><th>Delivery day</th><th>MAE, EUR/MWh</th><th>Pinball loss</th><th>Hours inside 80% band</th></tr></thead><tbody></tbody></table></div>
+  <p class="note">Scored against realised SMARD prices once they are published. A few weeks of live scores are a small sample; the backtest below covers two years.</p>
+</section>
+
+<section class="card">
+  <h2>Walk-forward backtest 2024-2025</h2>
+  <div class="wrap"><table id="bt"><thead><tr><th>Model</th><th>MAE</th><th>RMSE</th><th>MAE vs naive</th><th>80% coverage</th></tr></thead><tbody></tbody></table></div>
+  <p class="note">Same inputs for all models. The linear LEAR plus gradient boosting benchmark stays the most accurate; the PyTorch ensemble adds the quantile forecasts.</p>
+</section>
+</main>
+
+<script>
+const RAW = "https://raw.githubusercontent.com/michaelserikov/de-price-forecast-service/main/";
+const NAMES = {naive:"Naive (yesterday; last week for Mon, Sat, Sun)",mlp:"MLP",lstm:"LSTM",mlp_lstm_avg:"MLP and LSTM ensemble (served)",lear_gbm:"LEAR plus gradient boosting",lear_gbm_mlp_lstm:"All four averaged"};
+const fmt = (x,d=1) => Number(x).toFixed(d);
+function csv(t){const [h,...r]=t.trim().split(/\r?\n/);const k=h.split(",");return r.map(l=>Object.fromEntries(l.split(",").map((v,i)=>[k[i],v])));}
+async function get(p){try{const r=await fetch(RAW+p,{cache:"no-store"});return r.ok?await r.text():null;}catch(e){return null;}}
+function iso(d){return d.toISOString().slice(0,10);}
+
+async function latest(){
+  const d=new Date();d.setUTCDate(d.getUTCDate()+1);
+  for(let i=0;i<10;i++){const day=iso(d);const t=await get(`forecasts/${day}.csv`);if(t)return [day,csv(t)];d.setUTCDate(d.getUTCDate()-1);}
+  return [null,null];
+}
+
+function chart(rows){
+  const W=860,H=320,L=48,R=12,T=12,B=30;
+  const lo=Math.min(...rows.map(r=>+r.q10)),hi=Math.max(...rows.map(r=>+r.q90));
+  const pad=(hi-lo)*.08,y0=Math.floor((lo-pad)/25)*25,y1=Math.ceil((hi+pad)/25)*25;
+  const x=h=>L+(W-L-R)*h/23,y=v=>T+(H-T-B)*(1-(v-y0)/(y1-y0));
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Hourly price forecast">`;
+  for(let v=y0;v<=y1;v+=(y1-y0)>200?50:25){s+=`<line class="axis" x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}"/><text class="lbl" x="${L-6}" y="${y(v)+4}" text-anchor="end">${v}</text>`;}
+  for(let h=0;h<24;h+=3)s+=`<text class="lbl" x="${x(h)}" y="${H-10}" text-anchor="middle">${String(h).padStart(2,"0")}:00</text>`;
+  const up=rows.map(r=>`${x(+r.hour)},${y(+r.q90)}`).join(" "),dn=rows.slice().reverse().map(r=>`${x(+r.hour)},${y(+r.q10)}`).join(" ");
+  s+=`<polygon points="${up} ${dn}" fill="var(--band)"/>`;
+  s+=`<polyline points="${rows.map(r=>`${x(+r.hour)},${y(+r.q50)}`).join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2.4"/>`;
+  rows.forEach(r=>{s+=`<circle cx="${x(+r.hour)}" cy="${y(+r.q50)}" r="9" fill="transparent"><title>${String(r.hour).padStart(2,"0")}:00  median ${fmt(r.q50)}  (${fmt(r.q10)} to ${fmt(r.q90)}) EUR/MWh</title></circle>`;});
+  return s+"</svg>";
+}
+
+(async()=>{
+  const [day,rows]=await latest();
+  if(rows){
+    document.getElementById("k-day").textContent=day;
+    const avg=rows.reduce((a,r)=>a+ +r.q50,0)/rows.length;
+    document.getElementById("k-avg").textContent=fmt(avg)+" EUR/MWh";
+    const pk=rows.reduce((a,r)=>+r.q50>+a.q50?r:a);
+    document.getElementById("k-peak").textContent=`${String(pk.hour).padStart(2,"0")}:00, ${fmt(pk.q50,0)}`;
+    document.getElementById("chart-title").textContent="Forecast for "+day;
+    document.getElementById("chart").innerHTML=chart(rows);
+  } else document.getElementById("chart").textContent="Forecast files could not be loaded.";
+  const p=await get("forecasts/performance.csv");
+  if(p){
+    const r=csv(p).reverse();
+    document.querySelector("#perf tbody").innerHTML=r.map(o=>`<tr><td>${o.day}</td><td>${fmt(o.mae)}</td><td>${fmt(o.pinball)}</td><td>${fmt(100*o.coverage_80,0)}%</td></tr>`).join("");
+    const last=r.slice(0,7);document.getElementById("k-mae").textContent=fmt(last.reduce((a,o)=>a+ +o.mae,0)/last.length)+" EUR/MWh";
+  }
+  const b=await get("results/backtest/metrics.csv");
+  if(b){
+    const r=csv(b).filter(o=>o.period==="2024-2025");
+    document.querySelector("#bt tbody").innerHTML=r.map(o=>`<tr class="${o.model==="mlp_lstm_avg"?"hl":""}"><td>${NAMES[o.model]||o.model}</td><td>${fmt(o.mae)}</td><td>${fmt(o.rmse)}</td><td>${fmt(100*o.rmae,0)}%</td><td>${o.coverage_80?fmt(100*o.coverage_80,0)+"%":"–"}</td></tr>`).join("");
+  }
+})();
+</script>
+</body>
+</html>

@@ -4,6 +4,9 @@ Day-ahead power price forecasts for Germany (bidding zone DE-LU) with PyTorch ne
 served through a FastAPI endpoint, packaged as a Docker image and refreshed every evening by a
 scheduled GitHub Actions job that also scores past forecasts against realised prices.
 
+**Live page:** https://huggingface.co/spaces/michaelserikov/de-price-forecast (tomorrow's forecast,
+live accuracy and the backtest, read from the files the daily job commits here).
+
 The forecasting study behind it, with LEAR and gradient boosting benchmarks, is
 [de-power-market-ppa](https://github.com/michaelserikov/de-power-market-ppa) v0.5-v0.6. This
 repository adds neural networks, a walk-forward comparison with those benchmarks on identical
@@ -113,7 +116,9 @@ What a model that runs every day needs besides the model.
   is an MLflow run with its parameters, the validation pinball loss of each member, the check and drift
   reports and the model files; every daily run logs the live accuracy. SQLite store (`mlflow.db`),
   `mlflow ui --backend-store-uri sqlite:///mlflow.db`. Without MLflow the job runs the same.
-- **Deployment to a Hugging Face Docker Space**, prepared and not yet published:
+- **Live page** on a static Hugging Face Space (`deploy/hf-static/`): it reads the daily forecasts and
+  scores from this repository in the browser, so it updates without redeploying.
+- **Deployment of the API as a Hugging Face Docker Space**, prepared (Docker Spaces need a paid plan):
   `deploy/huggingface/` (Dockerfile running as user 1000 on port 7860, Space card),
   `scripts/deploy_hf.py` (dry run by default, `--push` uploads the package, the current model and the
   latest monitoring files) and a manual workflow `.github/workflows/deploy-hf.yml`.
